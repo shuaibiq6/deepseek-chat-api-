@@ -1,0 +1,16 @@
+# --- Web 框架 ---
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+pydantic==2.7.*
+pydantic-settings==2.3.*
+
+# --- 数据库 ---
+sqlalchemy==2.0.*
+aiomysql==0.2.*
+pymysql==1.1.*
+cryptography==42.0.*
+alembic==1.13.*
+
+# --- HTTP 客户端（DeepSeek 调用）---
+httpx==0.27.*
+python-dotenv==1.0.*
