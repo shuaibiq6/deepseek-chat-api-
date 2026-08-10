@@ -1,0 +1,323 @@
+================================================================================
+                DeepSeek Chat API —— 项目技术详述
+================================================================================
+
+一、项目概述
+--------------------------------------------------------------------------------
+本项目基于本地部署的 DeepSeek R1 大模型，封装为标准化 HTTP API 对话服务，
+提供多轮上下文管理、对话历史持久化以及 SSE（Server-Sent Events）流式响应。
+服务以会话（Conversation）为粒度组织历史消息，支持创建、查询、删除会话，
+并以 RESTful 接口对外暴露，配套完整的自动化测试与 Docker Compose 一键部署。
+
+二、技术栈与选型说明
+--------------------------------------------------------------------------------
+1. FastAPI
+   基于 Starlette 与 Pydantic 的异步 Web 框架，天然支持异步视图、依赖注入
+   （Dependency Injection）与自动生成 OpenAPI/Swagger 文档，适合 SSE 流式输出。
+
+2. DeepSeek API（OpenAI 兼容协议）
+   模型调用层封装为独立客户端，支持非流式（chat_completion）与流式
+   （stream_chat）。通过 DEEPSEEK_API_BASE 可同时指向：
+     - 官方 DeepSeek API：https://api.deepseek.com
+     - 本地 vLLM / Ollama 等 OpenAI 兼容推理服务：如 http://localhost:8001/v1
+   从而在统一接口下对接本地 R1 部署。
+
+3. SQLAlchemy 2.0（异步）
+   采用 SQLAlchemy 2.0 声明式风格（Mapped / mapped_column），配合
+   async_sessionmaker + aiomysql 驱动实现全异步数据库访问；
+   DeclarativeBase 统一管理模型元数据，供 Alembic 迁移复用。
+
+4. MySQL 8.0
+   生产数据存储，使用 utf8mb4 字符集。开发/测试环境通过 SQLite（aiosqlite）
+   内存库替换，保证测试零依赖、快速执行。
+
+5. Alembic
+   基于模型元数据（Base.metadata）管理数据库版本迁移；env.py 动态注入
+   DATABASE_URL，并将异步驱动（aiomysql）替换为同步驱动（pymysql）执行迁移。
+
+6. SSE 流式
+   使用 FastAPI 的 StreamingResponse（media_type=text/event-stream）实现
+   Server-Sent Events，逐 token 向客户端推送增量内容。
+
+7. Docker Compose
+   编排 FastAPI（api）与 MySQL（db）两个服务，通过 healthcheck 保证依赖就绪，
+   容器启动时自动执行 alembic upgrade head 完成建表。
+
+8. pytest + pytest-asyncio
+   测试框架，通过依赖覆盖（dependency_overrides）注入 FakeDeepSeekClient，
+   覆盖对话、鉴权、历史等核心业务。
+
+三、系统架构
+--------------------------------------------------------------------------------
+客户端(HTTP/SSE)
+     │  X-API-Key 鉴权
+     ▼
+[APIKeyAuthMiddleware] ── 纯 ASGI 中间件，白名单外请求校验 X-API-Key
+     │
+     ▼
+FastAPI 应用（app.main）
+     ├─ POST   /api/v1/chat                    → 对话接口（chat.py）
+     ├─ GET    /api/v1/conversations           → 会话列表
+     ├─ GET    /api/v1/conversations/{id}/messages → 会话历史
+     ├─ DELETE /api/v1/conversations/{id}      → 删除会话
+     └─ GET    /health                         → 健康检查（免鉴权）
+              │
+              ▼
+服务层（services）
+     ├─ ConversationService  ── 会话/消息业务、上下文组装、历史查询
+     └─ DeepSeekClient       ── httpx 异步调用上游大模型（流式/非流式）
+              │
+              ▼
+数据层（core/database + models）
+     └─ SQLAlchemy Async Engine + MySQL（conversations / messages 表）
+
+四、目录结构
+--------------------------------------------------------------------------------
+deepseek-chat-api/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI 应用入口（中间件/路由/异常/生命周期）
+│   ├── config.py               # 配置管理（Pydantic Settings）
+│   ├── models/                 # SQLAlchemy 数据模型
+│   │   ├── __init__.py
+│   │   ├── conversation.py     # 对话表
+│   │   └── message.py          # 消息表
+│   ├── schemas/                # Pydantic 请求/响应模型
+│   │   ├── __init__.py
+│   │   └── chat.py
+│   ├── api/                    # 路由层
+│   │   └── v1/endpoints/
+│   │       ├── chat.py         # 对话接口（含 SSE）
+│   │       └── history.py      # 历史接口
+│   ├── services/               # 业务逻辑层
+│   │   ├── __init__.py
+│   │   ├── deepseek.py         # DeepSeek API 调用封装
+│   │   └── conversation.py     # 会话管理服务
+│   ├── core/                   # 核心组件
+│   │   ├── __init__.py
+│   │   ├── database.py         # 数据库连接与会话
+│   │   ├── middleware.py       # API Key 鉴权中间件
+│   │   └── exceptions.py       # 自定义异常体系
+│   └── utils/
+│       └── logger.py           # 日志配置
+├── alembic/                    # 数据库迁移
+│   ├── env.py
+│   ├── script.py.mako
+│   └── versions/0001_create_conversations_messages.py
+├── tests/                      # 测试目录
+│   ├── conftest.py             # 全局夹具（SQLite + Fake 客户端）
+│   ├── test_chat.py
+│   └── test_history.py
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── scripts/
+│   └── init_db.py              # 初始化脚本（建库 + 迁移）
+├── examples/
+│   └── client_demo.py          # 示例客户端（含 SSE 演示）
+├── docs/
+│   └── 项目技术详述.txt        # 本文档
+├── requirements.txt
+├── requirements-dev.txt
+├── .env.example
+├── .gitignore
+├── pytest.ini
+├── README.md
+└── Makefile                    # 便捷命令
+
+五、数据库设计
+--------------------------------------------------------------------------------
+1. conversations（对话表）
+   - id          INTEGER PK 自增
+   - title       VARCHAR(200) 会话标题，默认"新对话"；首条用户消息截断前20字生成
+   - created_at  DATETIME 创建时间（server_default=now）
+   - updated_at  DATETIME 更新时间（onupdate=now）
+   - messages    ORM 关系：cascade="all, delete-orphan"（删除会话级联删消息）
+
+2. messages（消息表）
+   - id              INTEGER PK 自增
+   - conversation_id INTEGER FK → conversations.id，ON DELETE CASCADE，带索引
+   - role            VARCHAR(20) 取值 system / user / assistant
+   - content         TEXT 消息内容
+   - created_at      DATETIME 创建时间
+   - conversation    ORM 反向关系
+
+关系：Conversation 1 ── N Message；按 Message.id 升序即时间正序。
+
+六、RESTful 接口详述（共 4 个业务接口）
+--------------------------------------------------------------------------------
+公共约定：
+  - 前缀：/api/v1
+  - 鉴权：请求头 X-API-Key: <API_KEY>（由中间件统一校验，401 返回）
+  - 错误响应统一结构：{"detail": "...", "code": "..."}
+    （如 CONVERSATION_NOT_FOUND / UNAUTHORIZED / VALIDATION_ERROR / UPSTREAM_ERROR）
+
+1) POST /api/v1/chat —— 发起对话（核心）
+   请求体：
+   {
+     "message": "你好",            // 必填，1~20000 字符
+     "conversation_id": null,      // 可选；为空自动新建会话
+     "stream": false,              // 可选；true 返回 SSE 流式
+     "system_prompt": null,        // 可选系统提示词
+     "max_tokens": null,           // 可选；默认 2048
+     "temperature": null           // 可选；默认 0.7
+   }
+   非流式响应：{"conversation_id":1, "message_id":2, "reply":"...", "model":"..."}
+   流式响应  ：text/event-stream（详见第七节）
+
+   处理流程：
+   a. 获取/创建会话（conversation_id 为空则新建）
+   b. 持久化用户消息（Message role=user），并更新会话标题/时间
+   c. 从库中按时间正序组装历史消息，拼接可选 system_prompt 得到上下文
+   d. 调用 DeepSeek 上游（非流式/流式）
+   e. 持久化助手回复（Message role=assistant），返回结果
+
+2) GET /api/v1/conversations —— 会话列表（分页）
+   参数：limit（默认20，≤100）、offset（默认0）
+   响应：{"total": 3, "items": [{"id", "title", "created_at", "updated_at",
+         "message_count", "last_message"}, ...]}
+   按 updated_at 降序；message_count 与 last_message 通过子查询/分组统计。
+
+3) GET /api/v1/conversations/{conversation_id}/messages —— 会话历史
+   响应：{"conversation_id":1, "total":4,
+         "messages":[{"id","role","content","created_at"}, ...]}
+   不存在返回 404 / CONVERSATION_NOT_FOUND。
+
+4) DELETE /api/v1/conversations/{conversation_id} —— 删除会话
+   响应：{"ok": true, "conversation_id": 1}
+   级联删除该会话全部消息；不存在返回 404。
+
+系统接口：GET /health（免鉴权）返回服务状态与版本。
+
+七、SSE 流式协议
+--------------------------------------------------------------------------------
+触发方式：POST /api/v1/chat 且 body.stream=true。
+
+响应头：
+  Content-Type: text/event-stream
+  Cache-Control: no-cache
+  Connection: keep-alive
+  X-Accel-Buffering: no（禁用 Nginx 等反向代理缓冲，保证实时性）
+
+事件帧（每帧以空行分隔，形如 data: {json}\n\n）：
+
+  data: {"type": "delta", "content": "你"}
+  data: {"type": "delta", "content": "好"}
+  data: {"type": "done", "conversation_id": 1, "message_id": 2,
+         "content": "你好", "model": "deepseek-chat"}
+
+事件类型：
+  - delta：模型生成的增量文本片段，客户端按序拼接即得完整回复
+  - done ：生成完成，携带 conversation_id / message_id 便于后续多轮与历史查询
+  - error：流式链路异常，携带 message 错误描述
+
+实现要点：
+  - 流式分支在生成器内部独立管理数据库会话（async with SessionLocal），
+    避免 FastAPI 依赖生命周期与长连接冲突；
+  - 生成结束后异步持久化 assistant 消息（含完整内容）；
+  - 生成器内捕获异常并向客户端推送 error 事件，保证连接可正常收尾。
+
+八、核心设计要点
+--------------------------------------------------------------------------------
+1. 多轮上下文管理
+   以会话 ID 为纽带，每次请求将历史消息（user/assistant 交替）从库中取出，
+   按时间正序组装为 DeepSeek messages 上下文，实现"多轮连续对话"。
+
+2. 历史持久化
+   用户消息与模型回复均实时落库（SQLAlchemy 异步会话 + commit），
+   保证重启不丢失；通过 Alembic 管理表结构演进。
+
+3. API Key 鉴权中间件
+   实现为纯 ASGI 中间件（非 BaseHTTPMiddleware），规避对流式响应体的缓冲干扰；
+   白名单路径（/health、/docs、/redoc、/openapi.json）与 OPTIONS 预检免鉴权，
+   其余请求统一校验 X-API-Key，非法返回 401 + WWW-Authenticate 头。
+
+4. 配置管理
+   Pydantic Settings 统一管理；优先级：环境变量 > .env 文件 > 默认值；
+   lru_cache 单例化配置对象；测试通过环境变量无缝切换 SQLite。
+
+5. 异常体系
+   自定义 AppError 基类及其子类（NotFoundError / ConversationNotFoundError /
+   AuthError / UpstreamError），通过 FastAPI exception_handler 统一映射为
+   {"detail", "code"} 结构的 JSON 错误，参数校验错误单独映射为 422。
+
+6. 依赖注入
+   get_db 提供数据库会话；get_deepseek_client 提供上游客户端，
+   测试可借助 app.dependency_overrides 注入 Fake 实现，解耦外部依赖。
+
+7. 日志
+   utils/logger.py 统一配置 StreamHandler 与格式，DEBUG 开关控制级别。
+
+九、测试方案
+--------------------------------------------------------------------------------
+框架：pytest + pytest-asyncio（asyncio_mode=auto）
+环境：SQLite 内存库（sqlite+aiosqlite:///:memory:）+ StaticPool 共享单连接
+隔离：函数级夹具 clean_db 清空表数据；FakeDeepSeekClient 依赖覆盖注入
+
+覆盖用例：
+  test_chat.py
+    - /health 健康检查
+    - 非流式对话创建会话（消息计数 / 最后一条消息）
+    - 多轮上下文（历史 user 消息参与组装，roles 顺序断言）
+    - 系统提示词与会话标题生成
+    - SSE 流式协议（delta 拼接 == 完整回复，done 事件含 id）
+    - 流式消息持久化（user/assistant 均落库）
+    - 参数校验 422 / 无 Key 401 / 错误 Key 401
+
+  test_history.py
+    - 空会话列表
+    - 分页（limit/offset）与 total
+    - 历史消息按序返回（user/assistant 交替）
+    - 不存在会话 404（历史查询、对话、删除）
+    - 删除会话后历史不可访问、总数归零
+
+运行：pytest -v  或  make test
+
+十、部署方案
+--------------------------------------------------------------------------------
+Docker Compose 编排（docker/docker-compose.yml）：
+  - db  ：mysql:8.0，utf8mb4，healthcheck（mysqladmin ping）就绪检测
+  - api ：python:3.11-slim 构建，env_file 加载 .env，
+          DATABASE_URL 指向容器内 db 服务，
+          启动命令 = alembic upgrade head && uvicorn（先迁移后启动）
+
+一键部署：
+  docker compose -f docker/docker-compose.yml up --build -d
+
+本地部署（不使用 Docker）：
+  1) cp .env.example .env 并配置 DEEPSEEK_API_KEY/API_BASE/MODEL
+  2) 启动 MySQL：docker compose -f docker/docker-compose.yml up -d db
+  3) 初始化：python scripts/init_db.py（自动建库 + alembic upgrade head）
+  4) 启动：uvicorn app.main:app --reload --port 8000
+  5) 访问文档：http://localhost:8000/docs
+
+对接本地 DeepSeek R1 模型：
+  DEEPSEEK_API_BASE=http://localhost:8001/v1   # 本地 vLLM 等服务地址
+  DEEPSEEK_MODEL=deepseek-r1
+  本服务客户端与官方 API 完全兼容，无需改代码。
+
+十一、配置项清单（.env）
+--------------------------------------------------------------------------------
+API_KEY                本服务对外鉴权 Key
+DATABASE_URL           数据库连接串（异步驱动）
+AUTO_CREATE_TABLES     启动自动建表开关（默认 true；生产建议 false + 迁移）
+DEEPSEEK_API_KEY       上游模型 API Key
+DEEPSEEK_API_BASE      上游 API 地址（官方或本地兼容服务）
+DEEPSEEK_MODEL         模型名（如 deepseek-chat / deepseek-r1）
+DEEPSEEK_TIMEOUT       上游请求超时（秒）
+DEFAULT_MAX_TOKENS     默认最大生成 token
+DEFAULT_TEMPERATURE    默认采样温度
+DEBUG                  调试模式（影响日志级别与 SQL echo）
+
+十二、扩展方向
+--------------------------------------------------------------------------------
+- 上下文窗口裁剪：超长历史按 token 预算截断或摘要压缩
+- 会话重命名接口与批量管理
+- 用户/租户隔离（多用户维度扩展鉴权）
+- 限流与用量统计（Rate Limiter / token 计量）
+- 向量检索（RAG）接入文档问答
+- 前端 SSE 消费与打字机效果展示
+
+================================================================================
+                               —— 文档结束 ——
+================================================================================
