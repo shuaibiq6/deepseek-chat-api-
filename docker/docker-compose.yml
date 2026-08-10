@@ -1,0 +1,47 @@
+# FastAPI 服务 + MySQL 一键编排
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: deepseek-chat-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: deepseek_chat
+      MYSQL_USER: deepseek
+      MYSQL_PASSWORD: deepseek
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: deepseek-chat-api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: mysql+aiomysql://deepseek:deepseek@db:3306/deepseek_chat
+      # 容器内由 Alembic 负责建表，关闭自动建表
+      AUTO_CREATE_TABLES: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  mysql_data:

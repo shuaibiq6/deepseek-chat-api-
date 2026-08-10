@@ -1,0 +1,49 @@
+deepseek-chat-api/
+├── app/
+│   ├── __init__.py
+│   ├── main.py                 # FastAPI应用入口
+│   ├── config.py               # 配置管理(Pydantic Settings)
+│   ├── models/                 # SQLAlchemy数据模型
+│   │   ├── __init__.py
+│   │   ├── conversation.py     # 对话表
+│   │   └── message.py          # 消息表
+│   ├── schemas/                # Pydantic请求/响应模型
+│   │   ├── __init__.py
+│   │   └── chat.py
+│   ├── api/                    # 路由层
+│   │   ├── __init__.py
+│   │   └── v1/
+│   │       ├── __init__.py
+│   │       └── endpoints/
+│   │           ├── chat.py     # 对话接口
+│   │           └── history.py  # 历史接口
+│   ├── services/               # 业务逻辑层
+│   │   ├── __init__.py
+│   │   ├── deepseek.py         # DeepSeek API调用
+│   │   └── conversation.py     # 对话管理服务
+│   ├── core/                   # 核心组件
+│   │   ├── __init__.py
+│   │   ├── database.py         # 数据库连接
+│   │   ├── middleware.py       # API Key鉴权中间件
+│   │   └── exceptions.py       # 自定义异常
+│   └── utils/                  # 工具函数
+│       ├── __init__.py
+│       └── logger.py           # 日志配置
+├── alembic/                    # 数据库迁移
+│   └── versions/
+├── tests/                      # 测试目录
+│   ├── __init__.py
+│   ├── test_chat.py
+│   └── test_history.py
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── scripts/
+│   └── init_db.py             # 初始化脚本
+├── requirements.txt
+├── requirements-dev.txt
+├── .env.example
+├── .gitignore
+├── pytest.ini
+├── README.md
+└── Makefile                   # 便捷命令

@@ -1,0 +1,6 @@
+# 开发 / 测试依赖
+-r requirements.txt
+
+pytest==8.2.*
+pytest-asyncio==0.23.*
+aiosqlite==0.20.*

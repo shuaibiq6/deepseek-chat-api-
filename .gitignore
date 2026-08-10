@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 环境变量
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 日志与临时文件
+*.log
+*.pid
+*.sqlite3
