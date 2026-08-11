@@ -15,16 +15,27 @@ DEFAULT_EXEMPT_PATHS = {
 class APIKeyAuthMiddleware:
     """校验请求头 X-API-Key 是否与配置一致。"""
 
-    def __init__(self, app, api_key: str, exempt_paths: set[str] | None = None):
+    def __init__(
+        self,
+        app,
+        api_key: str,
+        exempt_paths: set[str] | None = None,
+        exempt_prefixes: set[str] | None = None,
+    ):
         self.app = app
         self.api_key = api_key
         self.exempt_paths = exempt_paths if exempt_paths is not None else DEFAULT_EXEMPT_PATHS
+        self.exempt_prefixes = exempt_prefixes or set()
 
     def _is_exempt(self, path: str, method: str) -> bool:
         # CORS 预检放行
         if method.upper() == "OPTIONS":
             return True
-        return path in self.exempt_paths
+        if path in self.exempt_paths:
+            return True
+        if any(path.startswith(p) for p in self.exempt_prefixes):
+            return True
+        return False
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":

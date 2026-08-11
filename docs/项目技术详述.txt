@@ -296,6 +296,52 @@ Docker Compose 编排（docker/docker-compose.yml）：
   DEEPSEEK_MODEL=deepseek-r1
   本服务客户端与官方 API 完全兼容，无需改代码。
 
+十、前端界面
+--------------------------------------------------------------------------------
+1. 概述
+   项目内置原生 HTML/CSS/JS 单页应用（frontend/），无构建依赖，随后端同源
+   部署：后端启动时自动将 frontend/ 挂载到根路径（/），访问即得完整界面。
+   前端通过 fetch + ReadableStream 消费后端全部接口，含 SSE 流式逐字渲染。
+
+2. 目录结构
+   frontend/
+     index.html        页面骨架（侧栏 / 消息区 / 输入区 / 弹窗）
+     css/style.css     样式（CSS 变量 + 浅色/深色双主题）
+     js/api.js         API 封装层（鉴权头、错误处理、SSE 帧解析）
+     js/app.js         应用逻辑（状态、渲染、事件、子功能跳转）
+
+3. 功能与后端接口映射
+   - 输入框 + 流式开关  → POST /api/v1/chat（stream=true/false）
+   - 侧栏会话列表/分页  → GET /api/v1/conversations
+   - 点击会话加载历史   → GET /api/v1/conversations/{id}/messages
+   - 会话删除（确认弹窗）→ DELETE /api/v1/conversations/{id}
+   - 服务状态徽标       → GET /health（免鉴权）
+   - 多轮上下文         → 发送时携带 conversation_id，自动复用历史
+
+4. 子功能设计
+   - 新建对话：清空视图，发送时不携带 conversation_id（后端自动建会话）
+   - 系统提示词：随请求发送 system_prompt
+   - 生成参数：temperature / max_tokens 滑动条
+   - 设置：API 地址 / API Key / 默认流式 / 主题，持久化到 localStorage
+   - 主题切换：浅色 / 深色（CSS 变量驱动，记忆用户选择）
+   - 会话刷新 / 加载更多：会话列表分页（limit/offset）
+
+5. 关键实现点
+   - SSE 解析：以 "\n\n" 为帧分隔符逐帧解析 data: {json}，增量拼接内容，
+     结束时以 done 事件返回 conversation_id，保证多轮续聊。
+   - 渲染安全：用户与模型内容先 escapeHtml，再做安全 Markdown 子集渲染
+     （标题/加粗/行内码/代码块/列表/引用/链接）。
+   - 侧栏一致性：新会话会插入列表顶部，追加分页时按 id 去重、发送后全量
+     刷新，避免陈旧 offset 造成重复项。
+   - 交互细节：Enter 发送 / Shift+Enter 换行 / 输入框自适应高度 / 自动滚动
+     / 流式光标 / 触屏设备始终显示删除按钮。
+
+6. 独立部署与本地联调
+   前端独立部署（python -m http.server）时，在「设置」中填写后端地址，
+   后端已开启 CORS（允许全部来源，鉴权基于 X-API-Key 请求头）。
+   无真实 Key 时可运行 scripts/mock_deepseek_server.py 作为模拟上游，
+   将 DEEPSEEK_API_BASE 指向其 /v1 即可端到端联调。
+
 十一、配置项清单（.env）
 --------------------------------------------------------------------------------
 API_KEY                本服务对外鉴权 Key
@@ -307,6 +353,7 @@ DEEPSEEK_MODEL         模型名（如 deepseek-chat / deepseek-r1）
 DEEPSEEK_TIMEOUT       上游请求超时（秒）
 DEFAULT_MAX_TOKENS     默认最大生成 token
 DEFAULT_TEMPERATURE    默认采样温度
+CORS_ORIGINS           允许的跨域来源（默认 ["*"]）
 DEBUG                  调试模式（影响日志级别与 SQL echo）
 
 十二、扩展方向
@@ -316,7 +363,7 @@ DEBUG                  调试模式（影响日志级别与 SQL echo）
 - 用户/租户隔离（多用户维度扩展鉴权）
 - 限流与用量统计（Rate Limiter / token 计量）
 - 向量检索（RAG）接入文档问答
-- 前端 SSE 消费与打字机效果展示
+- 前端接入 Markdown 数学公式、代码高亮与流式打字机特效
 
 ================================================================================
                                —— 文档结束 ——

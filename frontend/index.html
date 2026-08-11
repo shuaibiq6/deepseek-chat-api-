@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepSeek Chat · 智能对话工作台</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ============ 左侧栏 ============ -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">✦</div>
+        <div class="brand-text">
+          <div class="brand-title">DeepSeek Chat</div>
+          <div class="brand-sub">R1 智能对话工作台</div>
+        </div>
+      </div>
+
+      <div class="sidebar-actions">
+        <button id="btnNewChat" class="btn btn-primary btn-block" title="开始一段新对话（不携带 conversation_id）">
+          <span class="btn-icon">＋</span> 新建对话
+        </button>
+        <div class="api-key-row" title="调用后端 API 的鉴权 Key（X-API-Key）">
+          <input id="apiKeyInput" type="password" placeholder="API Key" autocomplete="off" spellcheck="false" />
+          <button id="btnSaveKey" class="btn btn-icon" title="保存 API Key">✓</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-head">
+          <span>会话列表</span>
+          <button id="btnRefresh" class="btn btn-icon" title="刷新会话列表">⟳</button>
+        </div>
+        <div id="convList" class="conv-list"></div>
+        <button id="btnLoadMore" class="btn btn-ghost btn-block hidden">加载更多</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <div id="healthBadge" class="health-badge is-checking" title="点击重新检测后端服务状态">
+          <span class="dot"></span><span id="healthText">检测服务状态…</span>
+        </div>
+        <button id="btnSettings" class="btn btn-ghost btn-block">⚙ 设置</button>
+      </div>
+    </aside>
+
+    <!-- ============ 主区域 ============ -->
+    <main class="main">
+      <header class="chat-header">
+        <div class="chat-title-wrap">
+          <div id="chatTitle" class="chat-title">开始新对话</div>
+          <div id="chatMeta" class="chat-meta">— 尚未发送消息</div>
+        </div>
+        <div class="header-actions">
+          <button id="btnTheme" class="btn btn-ghost" title="切换深色 / 浅色主题">🌓</button>
+          <button id="btnClearView" class="btn btn-ghost" title="仅清空当前会话视图">清空</button>
+        </div>
+      </header>
+
+      <div id="messages" class="messages">
+        <div class="welcome" id="welcome">
+          <div class="welcome-icon">✦</div>
+          <h2>开始对话吧</h2>
+          <p>输入消息并发送，即可调用本地 DeepSeek R1 模型。</p>
+          <div class="welcome-features">
+            <div class="wf-item"><b>多轮上下文</b><span>自动携带历史消息，连续对话</span></div>
+            <div class="wf-item"><b>SSE 流式</b><span>逐 token 实时输出，体验更流畅</span></div>
+            <div class="wf-item"><b>历史持久化</b><span>会话与消息自动保存，随时回看</span></div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="composer">
+        <div class="composer-options">
+          <button id="btnSystemPrompt" class="chip" title="设置系统提示词（system_prompt）">📋 系统提示词</button>
+          <button id="btnParams" class="chip" title="设置温度与最大 Token（temperature / max_tokens）">🎛 生成参数</button>
+          <label class="chip toggle" title="是否以 SSE 流式返回（stream）">
+            <input id="streamToggle" type="checkbox" checked /> 流式输出
+          </label>
+          <span id="paramsSummary" class="params-summary"></span>
+        </div>
+        <div class="composer-input">
+          <textarea id="messageInput" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行…" spellcheck="false"></textarea>
+          <button id="btnSend" class="btn btn-send" disabled title="发送消息">发送<span class="btn-icon">➤</span></button>
+        </div>
+        <div class="composer-hint">Enter 发送 · Shift+Enter 换行 · 后端接口：POST /api/v1/chat</div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- ============ 设置弹窗 ============ -->
+  <div id="settingsModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>⚙ 设置</h3>
+        <button class="modal-close btn btn-icon" data-close="settingsModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-item">
+          <label>API 地址（API Base）</label>
+          <input id="setApiBase" type="text" placeholder="http://localhost:8000" spellcheck="false" />
+          <p class="form-hint">默认使用当前页面同源地址；独立部署前端时填写后端地址。</p>
+        </div>
+        <div class="form-item">
+          <label>API Key（X-API-Key）</label>
+          <input id="setApiKey" type="password" placeholder="后端配置的 API_KEY" autocomplete="off" />
+          <p class="form-hint">留空时后端在开发模式（API_KEY 为空）下不做鉴权。</p>
+        </div>
+        <div class="form-item">
+          <label>默认流式输出</label>
+          <label class="switch"><input id="setStream" type="checkbox" checked /><span></span></label>
+        </div>
+        <div class="form-item">
+          <label>界面主题</label>
+          <select id="setTheme">
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="settingsModal">取消</button>
+        <button id="btnSaveSettings" class="btn btn-primary">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 系统提示词弹窗 ============ -->
+  <div id="promptModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>📋 系统提示词</h3>
+        <button class="modal-close btn btn-icon" data-close="promptModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-item">
+          <label>System Prompt（随每次请求发送）</label>
+          <textarea id="promptInput" rows="6" placeholder="例如：你是一位专业、友好的 AI 助手…" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="promptModal">取消</button>
+        <button id="btnSavePrompt" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 生成参数弹窗 ============ -->
+  <div id="paramsModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>🎛 生成参数</h3>
+        <button class="modal-close btn btn-icon" data-close="paramsModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-item">
+          <label>温度 Temperature：<b id="tempValue">0.7</b></label>
+          <input id="tempInput" type="range" min="0" max="2" step="0.1" value="0.7" />
+          <p class="form-hint">越高越随机，越低越确定。</p>
+        </div>
+        <div class="form-item">
+          <label>最大 Token：<b id="tokenValue">2048</b></label>
+          <input id="tokenInput" type="range" min="64" max="8192" step="64" value="2048" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="paramsModal">取消</button>
+        <button id="btnSaveParams" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 确认弹窗 ============ -->
+  <div id="confirmModal" class="modal-mask hidden">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3 id="confirmTitle">确认操作</h3>
+        <button class="modal-close btn btn-icon" data-close="confirmModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmText"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-close="confirmModal">取消</button>
+        <button id="btnConfirmOk" class="btn btn-danger">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Toast ============ -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

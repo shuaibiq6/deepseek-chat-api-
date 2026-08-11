@@ -12,6 +12,7 @@
 - **SSE 流式** — Server-Sent Events 逐 token 输出
 - **Docker Compose** — FastAPI + MySQL 一键编排
 - **pytest** — 测试覆盖
+- **前端** — 原生 HTML/CSS/JS 单页应用（零构建、随后端同源部署，含深色主题）
 
 ## 快速开始
 
@@ -108,6 +109,50 @@ data: {"type": "done", "conversation_id": 1, "message_id": 2, "content": "你好
 - `done`：生成完成（含会话/消息 ID）
 - `error`：流式链路出错
 
+## 前端界面
+
+项目内置一套完整的单页 Web 前端（`frontend/`），随后端同源部署，启动后端后直接访问 **http://localhost:8000/** 即可使用。
+
+### 功能一览（覆盖后端全部接口）
+
+| 界面入口 | 后端接口 | 说明 |
+| --- | --- | --- |
+| 底部输入框（流式开关开） | `POST /api/v1/chat`（stream=true） | SSE 流式逐字输出 |
+| 底部输入框（流式开关关） | `POST /api/v1/chat`（stream=false） | 非流式 JSON 回复 |
+| 侧栏会话列表 | `GET /api/v1/conversations` | 分页加载 + 标题/消息数/最后消息预览 |
+| 点击会话 | `GET /api/v1/conversations/{id}/messages` | 查看历史消息 |
+| 会话项 🗑 按钮 | `DELETE /api/v1/conversations/{id}` | 删除会话（带确认弹窗） |
+| 左上角服务状态 | `GET /health` | 实时在线状态 |
+
+### 子功能跳转
+
+- **＋ 新建对话**：清空当前视图，发送时自动创建新会话（不携带 conversation_id）
+- **📋 系统提示词**：设置随每次请求发送的 `system_prompt`
+- **🎛 生成参数**：调节 `temperature` 与 `max_tokens`
+- **⚙ 设置**：API 地址 / API Key / 默认流式 / 界面主题
+- **🌓 主题**：浅色 / 深色切换
+- **⟳ 刷新 / 加载更多**：会话列表刷新与分页
+
+### 使用说明
+
+```bash
+# 后端已自动挂载前端，直接访问：
+#   http://localhost:8000/
+# 独立部署前端（需后端开启 CORS）：
+cd frontend && python -m http.server 8080
+# 然后在「⚙ 设置」中把 API 地址填为 http://localhost:8000
+```
+
+无真实 DeepSeek Key 时可本地联调：
+
+```bash
+# 终端1：启动模拟上游（OpenAI 兼容，端口 8001）
+python scripts/mock_deepseek_server.py
+# 终端2：后端指向模拟上游后启动
+$env:DEEPSEEK_API_BASE="http://127.0.0.1:8001/v1"
+uvicorn app.main:app --reload
+```
+
 ## 测试
 
 ```bash
@@ -143,8 +188,13 @@ deepseek-chat-api/
 │   └── utils/logger.py         # 日志配置
 ├── alembic/                    # 数据库迁移
 ├── tests/                      # pytest 测试
+├── frontend/                   # 前端单页应用（随后端部署）
+│   ├── index.html
+│   ├── css/style.css
+│   └── js/{api,app}.js
 ├── docker/                     # Dockerfile / docker-compose.yml
 ├── scripts/init_db.py          # 初始化脚本
+├── scripts/mock_deepseek_server.py  # 本地模拟 DeepSeek 上游（联调用）
 ├── examples/client_demo.py     # 示例客户端
 ├── docs/项目技术详述.txt        # 项目技术详述
 ├── requirements.txt

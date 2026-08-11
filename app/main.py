@@ -1,9 +1,12 @@
 """FastAPI 应用入口。"""
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.endpoints import chat, history
 from app.config import settings
@@ -38,11 +41,28 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # API Key 鉴权中间件（白名单外的请求需携带 X-API-Key）
+    # CORS（允许前端独立部署时跨域访问；鉴权基于请求头，非 Cookie）
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # API Key 鉴权中间件（白名单外的请求需携带 X-API-Key；API_KEY 为空时跳过）
     app.add_middleware(
         APIKeyAuthMiddleware,
         api_key=settings.API_KEY,
-        exempt_paths={"/health", "/docs", "/redoc", "/openapi.json"},
+        exempt_paths={
+            "/health",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/",
+            "/index.html",
+        },
+        exempt_prefixes={"/css/", "/js/", "/assets/", "/favicon"},
     )
 
     # 路由注册
@@ -73,6 +93,14 @@ def create_app() -> FastAPI:
             status_code=422,
             content={"detail": exc.errors(), "code": "VALIDATION_ERROR"},
         )
+
+    # 前端静态资源挂载（需在所有路由之后，作为兜底）
+    frontend_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend"
+    )
+    if os.path.isdir(frontend_dir):
+        app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+        logger.info("前端静态资源已挂载: %s", frontend_dir)
 
     return app
 

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     DEFAULT_MAX_TOKENS: int = 2048
     DEFAULT_TEMPERATURE: float = 0.7
 
+    # ---- 跨域（前端独立部署时放开；默认允许全部）----
+    CORS_ORIGINS: list[str] = ["*"]
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
